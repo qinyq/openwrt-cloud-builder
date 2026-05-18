@@ -16,12 +16,22 @@ jobs:
     - name: Checkout local repository
       uses: actions/checkout@v4
 
+    # 1. 【新增】极限榨干磁盘空间，彻底解决编译 Go 包时的爆盘问题
+    - name: Free Disk Space (Ubuntu)
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: false
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: true
+
     - name: Initialize environment
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        sudo docker image prune --all --force
         sudo -E apt-get -qq update
         sudo bash -c 'bash <(curl -s https://build-scripts.immortalwrt.org/init_build_environment.sh)'
         sudo timedatectl set-timezone "$TZ"
@@ -29,16 +39,20 @@ jobs:
     - name: Clone OpenWrt source code
       run: git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-    # 【本次核心修正】开启双重缓存：不仅缓存下载包(dl)，同时缓存两个多小时熬出来的工具链(staging_dir)
+    # 2. 【新增】不死鸟缓存机制：自动继承上次进度，且无论本次成败必定存档
     - name: Cache OpenWrt Build Facets
       uses: actions/cache@v4
       with:
         path: |
           openwrt/dl
           openwrt/staging_dir
-        key: ${{ runner.os }}-openwrt-v2-${{ hashFiles('seed.config') }}
+        # key 加上 run_id 确保每次生成新存档
+        key: ${{ runner.os }}-openwrt-v3-${{ hashFiles('seed.config') }}-${{ github.run_id }}
         restore-keys: |
-          ${{ runner.os }}-openwrt-v2-
+          ${{ runner.os }}-openwrt-v3-${{ hashFiles('seed.config') }}-
+          ${{ runner.os }}-openwrt-v3-
+        # 核心魔法：哪怕后面报错了，依然把进度存入缓存！
+        save-always: true
 
     - name: Update and install feeds
       run: |
