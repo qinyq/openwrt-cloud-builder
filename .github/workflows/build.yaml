@@ -23,21 +23,22 @@ jobs:
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo docker image prune --all --force
         sudo -E apt-get -qq update
-        # 使用官方最新环境脚本，拒绝 404
         sudo bash -c 'bash <(curl -s https://build-scripts.immortalwrt.org/init_build_environment.sh)'
         sudo timedatectl set-timezone "$TZ"
 
     - name: Clone OpenWrt source code
       run: git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-    # 我们的独门秘籍：DL 目录缓存
-    - name: Cache dl directory
+    # 【本次核心修正】开启双重缓存：不仅缓存下载包(dl)，同时缓存两个多小时熬出来的工具链(staging_dir)
+    - name: Cache OpenWrt Build Facets
       uses: actions/cache@v4
       with:
-        path: openwrt/dl
-        key: ${{ runner.os }}-openwrt-dl-${{ hashFiles('seed.config') }}
+        path: |
+          openwrt/dl
+          openwrt/staging_dir
+        key: ${{ runner.os }}-openwrt-v2-${{ hashFiles('seed.config') }}
         restore-keys: |
-          ${{ runner.os }}-openwrt-dl-
+          ${{ runner.os }}-openwrt-v2-
 
     - name: Update and install feeds
       run: |
@@ -66,10 +67,8 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        # 融合 P3TERX 的三段式容错编译
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
-        # 融合 P3TERX 的设备名称和时间戳提取
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
@@ -79,7 +78,6 @@ jobs:
       if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         cd openwrt/bin/targets/*/*
-        # 核心优化：删掉几千个占空间的单体插件，只留固件压缩包
         rm -rf packages
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
@@ -88,6 +86,5 @@ jobs:
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        # 你的固件名字现在会非常高级，比如：OpenWrt_firmware_x86_64_202605181741
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${env.FILE_DATE}
+        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
