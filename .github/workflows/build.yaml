@@ -1,7 +1,7 @@
 name: Build OpenWrt with Cache
 
 on:
-  workflow_dispatch: # 允许在 GitHub 网页上手动点击运行
+  workflow_dispatch:
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
@@ -21,15 +21,16 @@ jobs:
         DEBIAN_FRONTEND: noninteractive
       run: |
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        sudo docker image prune --all --force
         sudo -E apt-get -qq update
-        # 使用 ImmortalWrt 官方提供的依赖一键安装脚本
-        sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/master/tools/ready-to-compile)
+        # 使用官方最新环境脚本，拒绝 404
+        sudo bash -c 'bash <(curl -s https://build-scripts.immortalwrt.org/init_build_environment.sh)'
         sudo timedatectl set-timezone "$TZ"
 
     - name: Clone OpenWrt source code
       run: git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-    # 核心：配置 DL 目录缓存
+    # 我们的独门秘籍：DL 目录缓存
     - name: Cache dl directory
       uses: actions/cache@v4
       with:
@@ -61,13 +62,32 @@ jobs:
         find dl -size -1024c -exec rm -f {} \;
 
     - name: Compile firmware
+      id: compile
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 V=s
+        # 融合 P3TERX 的三段式容错编译
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+        # 融合 P3TERX 的设备名称和时间戳提取
+        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
+        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
+    - name: Organize files (Clean up IPKs)
+      id: organize
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        cd openwrt/bin/targets/*/*
+        # 核心优化：删掉几千个占空间的单体插件，只留固件压缩包
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware directory
       uses: actions/upload-artifact@v4
+      if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: OpenWrt_Firmware_${{ github.run_id }}
-        path: openwrt/bin/targets/
+        # 你的固件名字现在会非常高级，比如：OpenWrt_firmware_x86_64_202605181741
+        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${env.FILE_DATE}
+        path: ${{ env.FIRMWARE }}
