@@ -11,7 +11,7 @@ if [ -f ../local-packages/openwrt-passwall2.tgz ]; then
     # 确保 custom 目录存在
     mkdir -p package/custom
     # 解压文件
-    tar -zxvf ../local-packages/openwrt-passwall2.tgz -C package/custom/
+    tar -zxf ../local-packages/openwrt-passwall2.tgz -C package/custom/
 else
     echo "Warning: openwrt-passwall2.tgz not found!"
 fi
