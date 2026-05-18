@@ -16,7 +16,6 @@ jobs:
     - name: Checkout local repository
       uses: actions/checkout@v4
 
-    # 1. 【新增】极限榨干磁盘空间，彻底解决编译 Go 包时的爆盘问题
     - name: Free Disk Space (Ubuntu)
       uses: jlumbroso/free-disk-space@main
       with:
@@ -39,20 +38,17 @@ jobs:
     - name: Clone OpenWrt source code
       run: git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-    # 2. 【新增】不死鸟缓存机制：自动继承上次进度，且无论本次成败必定存档
-    - name: Cache OpenWrt Build Facets
-      uses: actions/cache@v4
+    # 【改动 1】：只负责“读取”旧缓存（使用 actions/cache/restore@v4）
+    - name: Restore OpenWrt Build Facets
+      uses: actions/cache/restore@v4
       with:
         path: |
           openwrt/dl
           openwrt/staging_dir
-        # key 加上 run_id 确保每次生成新存档
         key: ${{ runner.os }}-openwrt-v3-${{ hashFiles('seed.config') }}-${{ github.run_id }}
         restore-keys: |
           ${{ runner.os }}-openwrt-v3-${{ hashFiles('seed.config') }}-
           ${{ runner.os }}-openwrt-v3-
-        # 核心魔法：哪怕后面报错了，依然把进度存入缓存！
-        save-always: true
 
     - name: Update and install feeds
       run: |
@@ -102,3 +98,13 @@ jobs:
       with:
         name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
+
+    # 【改动 2】：无论前面是成功还是报错，强制执行这最后一步保存动作！
+    - name: Save OpenWrt Build Facets
+      uses: actions/cache/save@v4
+      if: always()
+      with:
+        path: |
+          openwrt/dl
+          openwrt/staging_dir
+        key: ${{ runner.os }}-openwrt-v3-${{ hashFiles('seed.config') }}-${{ github.run_id }}
