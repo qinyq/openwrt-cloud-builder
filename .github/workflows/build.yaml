@@ -1,4 +1,4 @@
-name: Build OpenWrt with Cache
+name: Build OpenWrt with ccache
 
 on:
   workflow_dispatch:
@@ -38,16 +38,17 @@ jobs:
     - name: Clone OpenWrt source code
       run: git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-    # 【核心优化】：读取工具链专属缓存
-    - name: Restore OpenWrt Toolchain Cache
+    # 【改动 1】：使用全新的 ccache 专属缓存键和路径
+    - name: Restore OpenWrt ccache
       uses: actions/cache/restore@v4
       with:
         path: |
           openwrt/dl
-          openwrt/staging_dir
-        key: ${{ runner.os }}-openwrt-toolchain-${{ hashFiles('seed.config') }}
+          openwrt/.ccache
+        key: ${{ runner.os }}-openwrt-ccache-${{ hashFiles('seed.config') }}-${{ github.run_id }}
         restore-keys: |
-          ${{ runner.os }}-openwrt-toolchain-
+          ${{ runner.os }}-openwrt-ccache-${{ hashFiles('seed.config') }}-
+          ${{ runner.os }}-openwrt-ccache-
 
     - name: Update and install feeds
       run: |
@@ -62,6 +63,8 @@ jobs:
         cd openwrt
         [ -e ../scripts/diy-part2.sh ] && bash ../scripts/diy-part2.sh
         [ -e ../seed.config ] && mv ../seed.config .config
+        # 【改动 2】：强行开启 OpenWrt 的 ccache 编译加速功能
+        echo "CONFIG_CCACHE=y" >> .config
         make defconfig
 
     - name: Download packages
@@ -71,7 +74,7 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    # ==================== 【阶段一：专攻工具链】 ====================
+    # ==================== 【阶段一：打铁并建立哈希库】 ====================
     - name: Compile Tools & Toolchain
       run: |
         cd openwrt
@@ -80,14 +83,14 @@ jobs:
         echo "=== [2/2] Compiling Cross Toolchain (gcc, musl, llvm) ==="
         make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
 
-    # ==================== 【中途插队：立刻强制存盘】 ====================
-    - name: Save Toolchain Cache Midway
+    # ==================== 【中途插队：立刻强制存盘 ccache】 ====================
+    - name: Save ccache Midway
       uses: actions/cache/save@v4
       with:
         path: |
           openwrt/dl
-          openwrt/staging_dir
-        key: ${{ runner.os }}-openwrt-toolchain-${{ hashFiles('seed.config') }}
+          openwrt/.ccache
+        key: ${{ runner.os }}-openwrt-ccache-${{ hashFiles('seed.config') }}-${{ github.run_id }}
 
     # ==================== 【阶段二：编译插件与固件】 ====================
     - name: Compile Packages & Target Firmware
@@ -95,7 +98,6 @@ jobs:
       run: |
         cd openwrt
         echo "=== Compiling target packages and image ==="
-        # 此时工具链已就位，make world 会自动跳过它们，全身心编译插件
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
