@@ -38,17 +38,16 @@ jobs:
     - name: Clone OpenWrt source code
       run: git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-    # 【改动 1】：只负责“读取”旧缓存（使用 actions/cache/restore@v4）
-    - name: Restore OpenWrt Build Facets
+    # 【核心优化】：读取工具链专属缓存
+    - name: Restore OpenWrt Toolchain Cache
       uses: actions/cache/restore@v4
       with:
         path: |
           openwrt/dl
           openwrt/staging_dir
-        key: ${{ runner.os }}-openwrt-v3-${{ hashFiles('seed.config') }}-${{ github.run_id }}
+        key: ${{ runner.os }}-openwrt-toolchain-${{ hashFiles('seed.config') }}
         restore-keys: |
-          ${{ runner.os }}-openwrt-v3-${{ hashFiles('seed.config') }}-
-          ${{ runner.os }}-openwrt-v3-
+          ${{ runner.os }}-openwrt-toolchain-
 
     - name: Update and install feeds
       run: |
@@ -72,11 +71,31 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    - name: Compile firmware
+    # ==================== 【阶段一：专攻工具链】 ====================
+    - name: Compile Tools & Toolchain
+      run: |
+        cd openwrt
+        echo "=== [1/2] Compiling Host Tools ==="
+        make tools/install -j$(nproc) || make tools/install -j1 V=s
+        echo "=== [2/2] Compiling Cross Toolchain (gcc, musl, llvm) ==="
+        make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
+
+    # ==================== 【中途插队：立刻强制存盘】 ====================
+    - name: Save Toolchain Cache Midway
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          openwrt/dl
+          openwrt/staging_dir
+        key: ${{ runner.os }}-openwrt-toolchain-${{ hashFiles('seed.config') }}
+
+    # ==================== 【阶段二：编译插件与固件】 ====================
+    - name: Compile Packages & Target Firmware
       id: compile
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
+        echo "=== Compiling target packages and image ==="
+        # 此时工具链已就位，make world 会自动跳过它们，全身心编译插件
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
@@ -98,13 +117,3 @@ jobs:
       with:
         name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
-
-    # 【改动 2】：无论前面是成功还是报错，强制执行这最后一步保存动作！
-    - name: Save OpenWrt Build Facets
-      uses: actions/cache/save@v4
-      if: always()
-      with:
-        path: |
-          openwrt/dl
-          openwrt/staging_dir
-        key: ${{ runner.os }}-openwrt-v3-${{ hashFiles('seed.config') }}-${{ github.run_id }}
