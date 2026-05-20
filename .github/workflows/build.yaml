@@ -125,7 +125,7 @@ jobs:
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-    - name: Organize files (提取专属固件)
+    - name: Organize files (Extract firmware)
       id: organize
       if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
@@ -139,7 +139,7 @@ jobs:
         echo "FIRMWARE=$PWD/release_firmware" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Generate release tag (原子级时间变量生成)
+    - name: Generate release tag
       id: tag
       if: steps.organize.outputs.status == 'success' && !cancelled()
       run: |
@@ -160,7 +160,7 @@ jobs:
         echo "- **核心插件**: dae, xray-core, passwall2" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Publish to GitHub Releases (发布固件)
+    - name: Publish to GitHub Releases (Publish firmware)
       uses: softprops/action-gh-release@v2
       if: steps.tag.outputs.status == 'success' && !cancelled()
       env:
