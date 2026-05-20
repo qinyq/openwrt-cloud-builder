@@ -112,7 +112,7 @@ jobs:
         
         echo "=== 磁盘清理后 ==="
         df -hT
-        
+
     # ==================== 【阶段二：编译插件与固件】 ====================
     - name: Compile Packages & Target Firmware
       id: compile
@@ -125,18 +125,48 @@ jobs:
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-    - name: Organize files (Clean up IPKs)
+    - name: Organize files (提取专属固件)
       id: organize
       if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         cd openwrt/bin/targets/*/*
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        # 创建一个绝对干净的发布专属目录
+        mkdir -p release_firmware
+        # 白名单模式：只把你要的那个带 efi 且压缩过的固件移进去
+        find . -maxdepth 1 -name "*squashfs-combined-efi.img.gz" -exec mv {} release_firmware/ \;
+        
+        # 将发布目录的路径存入环境变量
+        echo "FIRMWARE=$PWD/release_firmware" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Upload firmware directory
-      uses: actions/upload-artifact@v4
+    - name: Generate release tag (原子级时间变量生成)
+      id: tag
       if: steps.organize.outputs.status == 'success' && !cancelled()
+      run: |
+        # 核心修复：先获取一次绝对的 Unix 时间戳，杜绝任何时间漂移
+        CURRENT_TS=$(date +%s)
+        
+        # 利用这个唯一时间戳，格式化出标签名和展示用的时间
+        TAG_TIME=$(date -d @$CURRENT_TS +"%Y.%m.%d-%H%M")
+        DISPLAY_TIME=$(date -d @$CURRENT_TS +"%Y-%m-%d %H:%M")
+        
+        # 统一赋值
+        echo "release_tag=$TAG_TIME" >> $GITHUB_OUTPUT
+        
+        touch release.txt
+        echo "## 🚀 ImmortalWrt Auto-Build" >> release.txt
+        echo "- **编译时间**: $DISPLAY_TIME" >> release.txt
+        echo "- **适用架构**: x86_64" >> release.txt
+        echo "- **核心插件**: dae, xray-core, passwall2" >> release.txt
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Publish to GitHub Releases (发布固件)
+      uses: softprops/action-gh-release@v2
+      if: steps.tag.outputs.status == 'success' && !cancelled()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE }}
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        body_path: release.txt
+        # 这里只会上传那个专属目录里的唯一一个文件
+        files: ${{ env.FIRMWARE }}/*
