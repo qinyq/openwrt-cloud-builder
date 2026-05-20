@@ -92,6 +92,27 @@ jobs:
           openwrt/.ccache
         key: ${{ runner.os }}-openwrt-ccache-${{ hashFiles('seed.config') }}-${{ github.run_id }}
 
+    # ==================== 【过河拆桥：极限清理打铁残渣】 ====================
+    - name: Extreme Cleanup (Free space for Packages)
+      run: |
+        cd openwrt
+        echo "=== 磁盘清理前 ==="
+        df -hT
+        
+        # 1. 砸碎模具：删除已经安装到 staging_dir 的宿主机和工具链的中间编译产物
+        # 这些东西极其庞大（尤其是 llvm），删掉至少能瞬间腾出 10GB-15GB 空间！
+        rm -rf build_dir/toolchain-*
+        rm -rf build_dir/host/llvm-*
+        rm -rf build_dir/host/gcc-*
+        rm -rf build_dir/host/binutils-*
+        rm -rf build_dir/host/go-*
+        
+        # 2. 给 ccache 上紧箍咒：限制它的最大容量为 5GB，超出会自动清理旧缓存
+        [ -f ./staging_dir/host/bin/ccache ] && ./staging_dir/host/bin/ccache -M 5G || true
+        
+        echo "=== 磁盘清理后 ==="
+        df -hT
+        
     # ==================== 【阶段二：编译插件与固件】 ====================
     - name: Compile Packages & Target Firmware
       id: compile
