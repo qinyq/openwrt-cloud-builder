@@ -138,6 +138,16 @@ jobs:
         # 将发布目录的路径存入环境变量
         echo "FIRMWARE=$PWD/release_firmware" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
+        
+    # ====== 【神级补救位：无论后面如何挂，这里都会提供网页临时下载】 ======
+    - name: Upload firmware to Artifacts (网页端临时下载通道)
+      uses: actions/upload-artifact@v4
+      # 即使后面的步骤或者前面的某些步骤有小瑕疵，只要固件整理出来了就必须上传
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      with:
+        name: OpenWrt_EFI_Firmware
+        path: ${{ env.FIRMWARE }}/*
+        retention-days: 7 # 临时保存7天，到期自动清理
 
     - name: Generate release tag
       id: tag
