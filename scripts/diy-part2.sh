@@ -15,10 +15,3 @@ if [ -f ../local-packages/openwrt-passwall2.tgz ]; then
 else
     echo "Warning: openwrt-passwall2.tgz not found!"
 fi
-
-# 3. 【无敌双保险】强行触发一次 feeds 安装
-# 既然 part1 里已经更新了地图，这里我们强行把它们从地图上拉进待编译兵工厂
-./scripts/feeds update -i
-./scripts/feeds install -f rtp2httpd
-./scripts/feeds install -f luci-app-nikki
-./scripts/feeds install -a
