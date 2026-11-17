@@ -1,0 +1,94 @@
+#!/bin/bash
+# 冒烟测试：ImmortalWrt / dae / honk 版本解析是否可用
+# 不拉完整源码树，只 ls-remote + 拉 Makefile；结束后删除临时目录。
+#
+# 用法：
+#   ./scripts/smoke-test-versions.sh
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/resolve-versions.sh"
+
+REPO_IMMORTALWRT="${REPO_IMMORTALWRT:-https://github.com/immortalwrt/immortalwrt}"
+REPO_OPENWRT_PACKAGES="${REPO_OPENWRT_PACKAGES:-https://github.com/daeuniverse/openwrt-packages}"
+REPO_DAE="${REPO_DAE:-https://github.com/daeuniverse/dae}"
+REPO_HONK="${REPO_HONK:-https://github.com/daeuniverse/honk}"
+PACKAGES_RAW="${PACKAGES_RAW:-https://raw.githubusercontent.com/daeuniverse/openwrt-packages/main}"
+
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/owrt-version-smoke.XXXXXX")"
+cleanup() {
+  rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT
+
+pass=0
+fail=0
+
+ok() {
+  echo "  OK  $*"
+  pass=$((pass + 1))
+}
+
+bad() {
+  echo "  FAIL $*" >&2
+  fail=$((fail + 1))
+}
+
+echo "==> [1/3] ImmortalWrt stable tag"
+IMMORTAL_TAG="$(resolve_immortalwrt_stable_tag "$REPO_IMMORTALWRT" || true)"
+if [ -z "${IMMORTAL_TAG:-}" ]; then
+  bad "resolve_immortalwrt_stable_tag returned empty"
+elif [[ ! "$IMMORTAL_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  bad "tag format unexpected: $IMMORTAL_TAG"
+elif [[ "$IMMORTAL_TAG" == *snapshot* ]] || [[ "$IMMORTAL_TAG" == openwrt-* ]]; then
+  bad "got snapshot/branch-like ref: $IMMORTAL_TAG"
+elif ! git_remote_tag_exists "$REPO_IMMORTALWRT" "$IMMORTAL_TAG"; then
+  bad "tag does not exist on remote: $IMMORTAL_TAG"
+else
+  ok "ImmortalWrt=$IMMORTAL_TAG"
+fi
+
+echo "==> [2/3] daeuniverse Makefile pins (dae / honk)"
+curl -fsSL "$PACKAGES_RAW/dae/Makefile" -o "$TMP_DIR/dae.Makefile"
+curl -fsSL "$PACKAGES_RAW/honk/Makefile" -o "$TMP_DIR/honk.Makefile"
+
+DAE_GIT_TAG="$(parse_dae_git_tag_from_makefile "$TMP_DIR/dae.Makefile" || true)"
+HONK_GIT_TAG="$(parse_honk_git_tag_from_makefile "$TMP_DIR/honk.Makefile" || true)"
+
+if [ -z "${DAE_GIT_TAG:-}" ]; then
+  bad "failed to parse dae git tag from Makefile"
+else
+  ok "parsed dae=$DAE_GIT_TAG"
+fi
+
+if [ -z "${HONK_GIT_TAG:-}" ]; then
+  bad "failed to parse honk git tag from Makefile"
+else
+  ok "parsed honk=$HONK_GIT_TAG"
+fi
+
+echo "==> [3/3] remote tags exist (no full clone)"
+if [ -n "${DAE_GIT_TAG:-}" ]; then
+  if git_remote_tag_exists "$REPO_DAE" "$DAE_GIT_TAG"; then
+    ok "dae remote has $DAE_GIT_TAG"
+  else
+    bad "dae remote missing $DAE_GIT_TAG"
+  fi
+fi
+
+if [ -n "${HONK_GIT_TAG:-}" ]; then
+  if git_remote_tag_exists "$REPO_HONK" "$HONK_GIT_TAG"; then
+    ok "honk remote has $HONK_GIT_TAG"
+  else
+    bad "honk remote missing $HONK_GIT_TAG"
+  fi
+fi
+
+echo
+echo "summary: pass=$pass fail=$fail (temp cleaned: $TMP_DIR)"
+if [ "$fail" -ne 0 ]; then
+  exit 1
+fi
+echo "smoke-test-versions: PASS"

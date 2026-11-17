@@ -5,7 +5,6 @@ on:
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-25.12
   TZ: Asia/Shanghai
 
 jobs:
@@ -35,8 +34,24 @@ jobs:
         sudo bash -c 'bash <(curl -s https://build-scripts.immortalwrt.org/init_build_environment.sh)'
         sudo timedatectl set-timezone "$TZ"
 
+    # 自动取最新正式版 tag（vX.Y.Z），不用 openwrt-25.12 这类会编成 *-snapshot 的滚动分支
+    - name: Resolve ImmortalWrt stable tag
+      id: immortalwrt_tag
+      run: |
+        set -euo pipefail
+        # shellcheck disable=SC1091
+        source scripts/lib/resolve-versions.sh
+        TAG="$(resolve_immortalwrt_stable_tag "$REPO_URL")"
+        if [ -z "$TAG" ]; then
+          echo "ERROR: no ImmortalWrt stable tag (vX.Y.Z) found" >&2
+          exit 1
+        fi
+        echo "REPO_BRANCH=$TAG" >> "$GITHUB_ENV"
+        echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+        echo "Using ImmortalWrt stable: $TAG"
+
     - name: Clone OpenWrt source code
-      run: git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+      run: git clone --depth 1 "$REPO_URL" -b "$REPO_BRANCH" openwrt
 
     # 【改动 1】：使用全新的 ccache 专属缓存键和路径
     - name: Restore OpenWrt ccache
@@ -66,6 +81,46 @@ jobs:
         # 【改动 2】：强行开启 OpenWrt 的 ccache 编译加速功能
         echo "CONFIG_CCACHE=y" >> .config
         make defconfig
+
+    # 官方 daeuniverse 包：dae 用 host Go+clang；honk 用 Rust stable/nightly + bpf-linker
+    - name: Install dae/honk host toolchain
+      run: |
+        set -euo pipefail
+        sudo apt-get -qq update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get -qq install -y \
+          clang llvm cmake libclang-dev zstd xz-utils pkg-config
+
+        DAE_SRC=openwrt/package/custom/daeuniverse/dae/src
+        HONK_SRC=openwrt/package/custom/daeuniverse/honk/src
+        GO_VERSION="$(sed -n 's/^go //p' "$DAE_SRC/go.mod" | head -1)"
+
+        # Go（dae build.sh 走 PATH 上的 go，不用 OpenWrt golang/host）
+        curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
+        sudo rm -rf /usr/local/go
+        sudo tar -C /usr/local -xzf /tmp/go.tgz
+        echo "/usr/local/go/bin" >> "$GITHUB_PATH"
+        export PATH="/usr/local/go/bin:$PATH"
+
+        # shellcheck disable=SC1091
+        . "$HONK_SRC/.github/ci/pins.env"
+        RUST_STABLE="$(sed -n 's/^channel = "\(.*\)"/\1/p' "$HONK_SRC/rust-toolchain.toml" | head -1)"
+        RUST_NIGHTLY="$(sed -n 's/^channel = "\(.*\)"/\1/p' "$HONK_SRC/crates/honk-ebpf/rust-toolchain.toml" | head -1)"
+
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+          | sh -s -- -y --profile minimal --no-modify-path --default-toolchain "$RUST_STABLE"
+        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        export PATH="$HOME/.cargo/bin:$PATH"
+
+        rustup component add rustfmt clippy --toolchain "$RUST_STABLE"
+        rustup target add x86_64-unknown-linux-musl --toolchain "$RUST_STABLE"
+        rustup toolchain install "$RUST_NIGHTLY" --profile minimal --component rust-src,llvm-tools
+
+        curl -fsSL -o /tmp/bpf-linker.tar.zst \
+          "https://github.com/aya-rs/bpf-linker/releases/download/v${BPF_LINKER_VERSION}/bpf-linker-x86_64-unknown-linux-musl.tar.zst"
+        echo "${BPF_LINKER_SHA256}  /tmp/bpf-linker.tar.zst" | sha256sum -c -
+        sudo tar --zstd -xf /tmp/bpf-linker.tar.zst -C /usr/local/bin
+
+        echo "dae/honk toolchain: go=$(go version) rust=${RUST_STABLE}/${RUST_NIGHTLY} bpf-linker=${BPF_LINKER_VERSION}"
 
     - name: Download packages
       run: |
@@ -167,7 +222,8 @@ jobs:
         echo "## 🚀 ImmortalWrt Auto-Build" >> release.txt
         echo "- **编译时间**: $DISPLAY_TIME" >> release.txt
         echo "- **适用架构**: x86_64" >> release.txt
-        echo "- **核心插件**: dae, xray-core, passwall2" >> release.txt
+        echo "- **基础版本**: ImmortalWrt ${{ env.REPO_BRANCH }}" >> release.txt
+        echo "- **核心插件**: dae/honk (daeuniverse/openwrt-packages), xray-core, passwall2" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Publish to GitHub Releases (Publish firmware)

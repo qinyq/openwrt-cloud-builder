@@ -1,5 +1,10 @@
 #!/bin/bash
 # 说明：在 update feeds 之后执行，用于修改默认 IP、克隆自定义包
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/resolve-versions.sh"
 
 # 1. 修改默认 LAN IP 为 192.168.99.1 (请按需修改)
 sed -i 's/192.168.1.1/192.168.99.1/g' package/base-files/files/bin/config_generate
@@ -34,3 +39,40 @@ rm -rf package/feeds/*/luci-app-rtp2httpd
 echo "Cloning original stackia rtp2httpd..."
 mkdir -p package/custom
 git clone -b stable --depth 1 https://github.com/stackia/rtp2httpd.git package/custom/rtp2httpd
+
+# ========================================================
+# 3. 注入 daeuniverse/openwrt-packages（官方 dae / honk / LuCI）
+#    https://github.com/daeuniverse/openwrt-packages
+#    Makefile 要求 dae/src、honk/src 预先检出上游源码。
+#    ImmortalWrt 自带内核 BTF，用 vmlinux-btf-builtin，去掉 SDK 专用的 vmlinux-btf。
+# ========================================================
+echo "Removing ImmortalWrt feeds dae / luci-app-dae..."
+rm -rf feeds/packages/net/dae
+rm -rf feeds/luci/applications/luci-app-dae
+rm -rf package/feeds/*/dae
+rm -rf package/feeds/*/dae-*
+rm -rf package/feeds/*/luci-app-dae
+rm -rf package/custom/dae
+
+echo "Cloning daeuniverse/openwrt-packages..."
+DAEUNIVERSE_DIR=package/custom/daeuniverse
+rm -rf "$DAEUNIVERSE_DIR"
+git clone --depth 1 https://github.com/daeuniverse/openwrt-packages.git "$DAEUNIVERSE_DIR"
+# ImmortalWrt 内核自带 BTF，用仓库里的 vmlinux-btf-builtin；SDK 专用的 vmlinux-btf 会抢依赖，去掉即可。
+# keys/docs/scripts/src 等是官方发 apk / 编 BTF blob 用的，留着也不影响编译，不必删。
+rm -rf "$DAEUNIVERSE_DIR/vmlinux-btf"
+
+# 版本跟官方 Makefile 默认值走（与 smoke-test-versions.sh 同一套解析）
+DAE_GIT_TAG="$(parse_dae_git_tag_from_makefile "$DAEUNIVERSE_DIR/dae/Makefile")"
+HONK_GIT_TAG="$(parse_honk_git_tag_from_makefile "$DAEUNIVERSE_DIR/honk/Makefile")"
+
+
+echo "Checking out dae sources at ${DAE_GIT_TAG} (from official Makefile)..."
+git clone --depth 1 --recurse-submodules --branch "$DAE_GIT_TAG" \
+  https://github.com/daeuniverse/dae.git "$DAEUNIVERSE_DIR/dae/src"
+
+echo "Checking out honk sources at ${HONK_GIT_TAG} (from official Makefile)..."
+git clone --depth 1 --branch "$HONK_GIT_TAG" \
+  https://github.com/daeuniverse/honk.git "$DAEUNIVERSE_DIR/honk/src"
+
+echo "dae/honk ready: dae=${DAE_GIT_TAG} honk=${HONK_GIT_TAG}"
