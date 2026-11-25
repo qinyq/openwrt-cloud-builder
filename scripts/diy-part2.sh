@@ -76,3 +76,26 @@ git clone --depth 1 --branch "$HONK_GIT_TAG" \
   https://github.com/daeuniverse/honk.git "$DAEUNIVERSE_DIR/honk/src"
 
 echo "dae/honk ready: dae=${DAE_GIT_TAG} honk=${HONK_GIT_TAG}"
+
+# ========================================================
+# 4. 注入 jerrykuku/luci-theme-argon（上游最新稳定版）
+#    https://github.com/jerrykuku/luci-theme-argon
+#    Argon 3.x 已内置 Config，不再需要独立 luci-app-argon-config。
+# ========================================================
+echo "Removing ImmortalWrt feeds luci-theme-argon / luci-app-argon-config..."
+rm -rf feeds/luci/themes/luci-theme-argon
+rm -rf feeds/luci/applications/luci-app-argon-config
+rm -rf package/feeds/*/luci-theme-argon
+rm -rf package/feeds/*/luci-app-argon-config
+rm -rf package/custom/luci-theme-argon
+
+ARGON_GIT_TAG="$(resolve_argon_stable_tag)"
+if [ -z "$ARGON_GIT_TAG" ]; then
+  echo "ERROR: failed to resolve jerrykuku/luci-theme-argon stable tag" >&2
+  exit 1
+fi
+
+echo "Cloning jerrykuku/luci-theme-argon at ${ARGON_GIT_TAG}..."
+git clone --depth 1 --branch "$ARGON_GIT_TAG" \
+  https://github.com/jerrykuku/luci-theme-argon.git package/custom/luci-theme-argon
+echo "argon ready: ${ARGON_GIT_TAG}"

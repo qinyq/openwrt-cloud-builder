@@ -1,9 +1,19 @@
 #!/bin/bash
-# 共享版本解析逻辑：ImmortalWrt 稳定 tag、daeuniverse Makefile 默认 pin
+# 共享版本解析逻辑：ImmortalWrt / Argon 稳定 tag、daeuniverse Makefile 默认 pin
 # 供 diy-part2.sh 与 smoke-test-versions.sh 复用，避免两处漂移。
 
 resolve_immortalwrt_stable_tag() {
   local repo_url="${1:-https://github.com/immortalwrt/immortalwrt}"
+  git ls-remote --tags --refs "$repo_url" 'v*' \
+    | awk -F/ '{print $NF}' \
+    | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+    | sort -V \
+    | tail -1
+}
+
+# jerrykuku/luci-theme-argon 最新正式版 tag（vX.Y.Z）
+resolve_argon_stable_tag() {
+  local repo_url="${1:-https://github.com/jerrykuku/luci-theme-argon}"
   git ls-remote --tags --refs "$repo_url" 'v*' \
     | awk -F/ '{print $NF}' \
     | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \

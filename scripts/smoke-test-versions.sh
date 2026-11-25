@@ -1,5 +1,5 @@
 #!/bin/bash
-# 冒烟测试：ImmortalWrt / dae / honk 版本解析是否可用
+# 冒烟测试：ImmortalWrt / Argon / dae / honk 版本解析是否可用
 # 不拉完整源码树，只 ls-remote + 拉 Makefile；结束后删除临时目录。
 #
 # 用法：
@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/resolve-versions.sh"
 
 REPO_IMMORTALWRT="${REPO_IMMORTALWRT:-https://github.com/immortalwrt/immortalwrt}"
-REPO_OPENWRT_PACKAGES="${REPO_OPENWRT_PACKAGES:-https://github.com/daeuniverse/openwrt-packages}"
+REPO_ARGON="${REPO_ARGON:-https://github.com/jerrykuku/luci-theme-argon}"
 REPO_DAE="${REPO_DAE:-https://github.com/daeuniverse/dae}"
 REPO_HONK="${REPO_HONK:-https://github.com/daeuniverse/honk}"
 PACKAGES_RAW="${PACKAGES_RAW:-https://raw.githubusercontent.com/daeuniverse/openwrt-packages/main}"
@@ -36,7 +36,7 @@ bad() {
   fail=$((fail + 1))
 }
 
-echo "==> [1/3] ImmortalWrt stable tag"
+echo "==> [1/4] ImmortalWrt stable tag"
 IMMORTAL_TAG="$(resolve_immortalwrt_stable_tag "$REPO_IMMORTALWRT" || true)"
 if [ -z "${IMMORTAL_TAG:-}" ]; then
   bad "resolve_immortalwrt_stable_tag returned empty"
@@ -50,7 +50,19 @@ else
   ok "ImmortalWrt=$IMMORTAL_TAG"
 fi
 
-echo "==> [2/3] daeuniverse Makefile pins (dae / honk)"
+echo "==> [2/4] jerrykuku luci-theme-argon stable tag"
+ARGON_TAG="$(resolve_argon_stable_tag "$REPO_ARGON" || true)"
+if [ -z "${ARGON_TAG:-}" ]; then
+  bad "resolve_argon_stable_tag returned empty"
+elif [[ ! "$ARGON_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  bad "tag format unexpected: $ARGON_TAG"
+elif ! git_remote_tag_exists "$REPO_ARGON" "$ARGON_TAG"; then
+  bad "tag does not exist on remote: $ARGON_TAG"
+else
+  ok "Argon=$ARGON_TAG"
+fi
+
+echo "==> [3/4] daeuniverse Makefile pins (dae / honk)"
 curl -fsSL "$PACKAGES_RAW/dae/Makefile" -o "$TMP_DIR/dae.Makefile"
 curl -fsSL "$PACKAGES_RAW/honk/Makefile" -o "$TMP_DIR/honk.Makefile"
 
@@ -69,7 +81,7 @@ else
   ok "parsed honk=$HONK_GIT_TAG"
 fi
 
-echo "==> [3/3] remote tags exist (no full clone)"
+echo "==> [4/4] remote tags exist (no full clone)"
 if [ -n "${DAE_GIT_TAG:-}" ]; then
   if git_remote_tag_exists "$REPO_DAE" "$DAE_GIT_TAG"; then
     ok "dae remote has $DAE_GIT_TAG"
