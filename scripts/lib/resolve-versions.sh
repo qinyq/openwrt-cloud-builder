@@ -21,6 +21,16 @@ resolve_argon_stable_tag() {
     | tail -1
 }
 
+# stackia/rtp2httpd 最新正式版 tag（vX.Y.Z，排除 beta/rc）
+resolve_rtp2httpd_stable_tag() {
+  local repo_url="${1:-https://github.com/stackia/rtp2httpd}"
+  git ls-remote --tags --refs "$repo_url" 'v*' \
+    | awk -F/ '{print $NF}' \
+    | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+    | sort -V \
+    | tail -1
+}
+
 # 从 dae/Makefile 解析默认 PKG_VERSION，并变成 git tag（补 v 前缀）
 parse_dae_git_tag_from_makefile() {
   local makefile="$1"

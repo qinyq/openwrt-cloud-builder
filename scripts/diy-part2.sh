@@ -34,11 +34,25 @@ rm -rf package/feeds/*/rtp2httpd
 rm -rf package/feeds/*/luci-app-rtp2httpd
 
 # ========================================================
-# 2. 注入 Stackia 官方原版 (新皇登基)
+# 2. 注入 Stackia 官方 rtp2httpd（最新稳定 tag，不用 rolling stable 分支）
+#    openwrt-support/*/Makefile 仅在「当前 commit 正好是干净 v* tag」时用语义化版本；
+#    否则会回退成 date +%Y%m%d。因此必须按 release tag 检出并保留该 tag。
 # ========================================================
-echo "Cloning original stackia rtp2httpd..."
+echo "Resolving stackia/rtp2httpd stable tag..."
 mkdir -p package/custom
-git clone -b stable --depth 1 https://github.com/stackia/rtp2httpd.git package/custom/rtp2httpd
+rm -rf package/custom/rtp2httpd
+RTP2HTTPD_GIT_TAG="$(resolve_rtp2httpd_stable_tag)"
+if [ -z "$RTP2HTTPD_GIT_TAG" ]; then
+  echo "ERROR: failed to resolve stackia/rtp2httpd stable tag" >&2
+  exit 1
+fi
+echo "Cloning stackia/rtp2httpd at ${RTP2HTTPD_GIT_TAG}..."
+git clone --depth 1 --branch "$RTP2HTTPD_GIT_TAG" \
+  https://github.com/stackia/rtp2httpd.git package/custom/rtp2httpd
+# 浅克隆有时没有 refs/tags；补上本地 tag，让 Makefile 的 git describe --exact-match 生效
+git -C package/custom/rtp2httpd tag -f "$RTP2HTTPD_GIT_TAG" HEAD
+RTP2HTTPD_PKG_VER="$(git -C package/custom/rtp2httpd describe --tags --exact-match --match 'v*' | sed 's/^v//')"
+echo "rtp2httpd ready: tag=${RTP2HTTPD_GIT_TAG} PKG_VERSION=${RTP2HTTPD_PKG_VER}"
 
 # ========================================================
 # 3. 注入 daeuniverse/openwrt-packages（官方 dae / honk / LuCI）

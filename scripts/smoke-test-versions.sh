@@ -13,6 +13,7 @@ source "$SCRIPT_DIR/lib/resolve-versions.sh"
 
 REPO_IMMORTALWRT="${REPO_IMMORTALWRT:-https://github.com/immortalwrt/immortalwrt}"
 REPO_ARGON="${REPO_ARGON:-https://github.com/jerrykuku/luci-theme-argon}"
+REPO_RTP2HTTPD="${REPO_RTP2HTTPD:-https://github.com/stackia/rtp2httpd}"
 REPO_DAE="${REPO_DAE:-https://github.com/daeuniverse/dae}"
 REPO_HONK="${REPO_HONK:-https://github.com/daeuniverse/honk}"
 PACKAGES_RAW="${PACKAGES_RAW:-https://raw.githubusercontent.com/daeuniverse/openwrt-packages/main}"
@@ -36,7 +37,7 @@ bad() {
   fail=$((fail + 1))
 }
 
-echo "==> [1/4] ImmortalWrt stable tag"
+echo "==> [1/5] ImmortalWrt stable tag"
 IMMORTAL_TAG="$(resolve_immortalwrt_stable_tag "$REPO_IMMORTALWRT" || true)"
 if [ -z "${IMMORTAL_TAG:-}" ]; then
   bad "resolve_immortalwrt_stable_tag returned empty"
@@ -50,7 +51,7 @@ else
   ok "ImmortalWrt=$IMMORTAL_TAG"
 fi
 
-echo "==> [2/4] jerrykuku luci-theme-argon stable tag"
+echo "==> [2/5] jerrykuku luci-theme-argon stable tag"
 ARGON_TAG="$(resolve_argon_stable_tag "$REPO_ARGON" || true)"
 if [ -z "${ARGON_TAG:-}" ]; then
   bad "resolve_argon_stable_tag returned empty"
@@ -62,7 +63,19 @@ else
   ok "Argon=$ARGON_TAG"
 fi
 
-echo "==> [3/4] daeuniverse Makefile pins (dae / honk)"
+echo "==> [3/5] stackia rtp2httpd stable tag"
+RTP2HTTPD_TAG="$(resolve_rtp2httpd_stable_tag "$REPO_RTP2HTTPD" || true)"
+if [ -z "${RTP2HTTPD_TAG:-}" ]; then
+  bad "resolve_rtp2httpd_stable_tag returned empty"
+elif [[ ! "$RTP2HTTPD_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  bad "tag format unexpected: $RTP2HTTPD_TAG"
+elif ! git_remote_tag_exists "$REPO_RTP2HTTPD" "$RTP2HTTPD_TAG"; then
+  bad "tag does not exist on remote: $RTP2HTTPD_TAG"
+else
+  ok "rtp2httpd=$RTP2HTTPD_TAG"
+fi
+
+echo "==> [4/5] daeuniverse Makefile pins (dae / honk)"
 curl -fsSL "$PACKAGES_RAW/dae/Makefile" -o "$TMP_DIR/dae.Makefile"
 curl -fsSL "$PACKAGES_RAW/honk/Makefile" -o "$TMP_DIR/honk.Makefile"
 
@@ -81,7 +94,7 @@ else
   ok "parsed honk=$HONK_GIT_TAG"
 fi
 
-echo "==> [4/4] remote tags exist (no full clone)"
+echo "==> [5/5] remote tags exist (no full clone)"
 if [ -n "${DAE_GIT_TAG:-}" ]; then
   if git_remote_tag_exists "$REPO_DAE" "$DAE_GIT_TAG"; then
     ok "dae remote has $DAE_GIT_TAG"
